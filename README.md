@@ -1,74 +1,506 @@
-# Tutorial 03 — Airflow: a pipeline that runs without you
+# Breast Cancer Data Pipeline with Apache Airflow
 
-## What this tutorial is for
+A reproducible data-processing pipeline built with **Apache Airflow** and **Docker** using the Wisconsin Diagnostic Breast Cancer dataset.
 
-The pipeline is deliberately not machine learning: ingest, validate, split, scale.
+The workflow demonstrates how Airflow can orchestrate a complete preprocessing pipeline from raw data ingestion to validation, deterministic dataset splitting, feature scaling, and run reporting.
 
-## Two ways to run it
+## Pipeline Overview
 
-Both give the same DAG.
+The DAG contains five main tasks:
 
-**A. Locally** (macOS, Linux, Windows + WSL2) — lighter, faster:
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt \
-  --constraint https://raw.githubusercontent.com/apache/airflow/constraints-2.8.4/constraints-3.11.txt
-
-export AIRFLOW_HOME=$PWD/.airflow
-export AIRFLOW__CORE__DAGS_FOLDER=$PWD/dags
-export AIRFLOW__CORE__LOAD_EXAMPLES=False
-airflow standalone
+```text
+ingest
+   ↓
+validate
+   ↓
+split
+   ↓
+scale
+   ↓
+report
 ```
 
-The web UI comes up on <http://127.0.0.1:8080>. `standalone` prints the admin password on first start and also writes it to
-`$AIRFLOW_HOME/standalone_admin_password.txt`.
+### Tasks
 
-**B. Docker** — one container, built once from the `Dockerfile` beside this file:
+* **ingest**
+  Reads the source CSV file and creates an immutable Parquet snapshot for the current DAG run.
+
+* **validate**
+  Checks the dataset for null values, negative measurements, invalid labels, duplicate samples, and extreme outliers.
+
+* **split**
+  Creates deterministic training and testing datasets by hashing `sample_id`.
+
+* **scale**
+  Calculates scaling statistics using the training dataset only and applies them to both train and test sets.
+
+* **report**
+  Generates a summary for the current run and maintains execution history.
+
+---
+
+## Project Structure
+
+```text
+airflow-mlops-pipeline/
+│
+├── dags/
+│   └── ml_training_pipeline.py
+│
+├── data/
+│   ├── raw/
+│   │   └── wdbc.csv
+│   └── staging/
+│
+├── utilities/
+│   └── generate_corrupted_data.py
+│
+├── config/
+│   └── __init__.py
+│
+├── src/
+│   └── __init__.py
+│
+├── logs/
+│
+├── Dockerfile.airflow
+├── compose.yaml
+├── requirements.txt
+├── .dockerignore
+├── .gitignore
+└── README.md
+```
+
+---
+
+## Requirements
+
+The project can be executed either locally or with Docker.
+
+Recommended versions:
+
+```text
+Python: 3.11
+Apache Airflow: 2.8.4
+Docker / Docker Compose
+```
+
+---
+
+# Running with Docker
+
+Docker is the recommended method because all dependencies are isolated inside the Airflow container.
+
+## 1. Build and start Airflow
 
 ```bash
-# On Linux only
-echo "AIRFLOW_UID=$(id -u)" > .env
-
 docker compose up -d --build
-docker compose ps        # wait for STATUS = healthy, about a minute
+```
+
+Check container status:
+
+```bash
+docker compose ps
+```
+
+Wait until the Airflow container reports a healthy status.
+
+The project uses:
+
+```text
+Docker image: breast-cancer-airflow:2.8.4
+Container:    breast-cancer-mlops-airflow
+Airflow UI:   http://127.0.0.1:18080
+```
+
+The internal Airflow port remains `8080`, while the host exposes it through port `18080`.
+
+---
+
+## 2. Get the Airflow admin password
+
+```bash
 docker compose exec airflow cat /opt/airflow/standalone_admin_password.txt
 ```
 
-After the first time, `docker compose up -d` is enough — Docker reuses the
-image it already built. Add `--build` again only when you change the
-`Dockerfile`.
+Open:
 
-<http://127.0.0.1:18080>, user `admin`. Port 18080 and not 8080, because Lab 2
-owns 8080 and you will want both running one day.
+```text
+http://127.0.0.1:18080
+```
 
-## Running the pipeline
+Username:
 
-This runs every task in order, in your terminal:
+```text
+admin
+```
+
+Use the password returned by the previous command.
+
+---
+
+# Running Locally
+
+Create a Python virtual environment:
 
 ```bash
-airflow dags test breast_cancer_etl 2026-08-25
+python3.11 -m venv .venv
 ```
 
-Then look at what it produced:
+Activate it:
 
+```bash
+source .venv/bin/activate
 ```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt \
+  --constraint https://raw.githubusercontent.com/apache/airflow/constraints-2.8.4/constraints-3.11.txt
+```
+
+Configure the local Airflow environment:
+
+```bash
+export AIRFLOW_HOME=$PWD/.airflow
+export AIRFLOW__CORE__DAGS_FOLDER=$PWD/dags
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+```
+
+Start Airflow:
+
+```bash
+airflow standalone
+```
+
+The local Airflow UI will be available at:
+
+```text
+http://127.0.0.1:8080
+```
+
+---
+
+# Airflow DAG
+
+The project registers the following DAG:
+
+```text
+breast_cancer_etl
+```
+
+Verify that Airflow successfully loaded it:
+
+```bash
+docker compose exec airflow airflow dags list | grep breast_cancer
+```
+
+Expected output:
+
+```text
+breast_cancer_etl | ml_training_pipeline.py | airflow
+```
+
+Check for DAG import errors:
+
+```bash
+docker compose exec airflow airflow dags list-import-errors
+```
+
+A healthy configuration should return:
+
+```text
+No data found
+```
+
+---
+
+# Testing the Pipeline
+
+Execute the complete DAG for a logical execution date:
+
+```bash
+docker compose exec airflow airflow dags test breast_cancer_etl 2026-08-25
+```
+
+The tasks execute sequentially:
+
+```text
+ingest
+validate
+split
+scale
+report
+```
+
+A successful run finishes with:
+
+```text
+state=success
+```
+
+---
+
+# Pipeline Output
+
+Each logical execution date receives its own working directory.
+
+Example:
+
+```text
 data/staging/2026-08-25/
-  raw.parquet              snapshot of the extract, frozen for this run
-  clean.parquet            rows that passed validation
-  rejected.parquet         rows that did not, kept for inspection
-  validation_report.json   what failed and how often
-  train.parquet  test.parquet  scaler.json
-  summary.json
-data/staging/history.jsonl one line per run
 ```
 
-## The exercises
+Generated artifacts include:
 
-| | Do this | Look for |
-|---|---|---|
-| 1 | `airflow dags test breast_cancer_etl 2026-08-25` twice | The outputs are byte-identical and `history.jsonl` still has one line for that date. Re-running a date is safe. |
-| 2 | `python utilities/generate_corrupted_data.py` then re-run | `validate` fails with `13.0% of rows rejected, limit is 5%`, and the log says **Immediate failure requested** — the three retries were skipped on purpose. Repair with `--repair`. |
-| 3 | `airflow dags backfill breast_cancer_etl -s 2026-08-22 -e 2026-08-24` | Three run folders appear, one per date, three lines in `history.jsonl`. |
-| 4 | Open the UI, Grid view, click a failed task, then Logs | The traceback for one task of one date, without SSH-ing anywhere. |
+```text
+raw.parquet
+clean.parquet
+rejected.parquet
+validation_report.json
+
+train_unscaled.parquet
+test_unscaled.parquet
+
+train.parquet
+test.parquet
+
+scaler.json
+summary.json
+```
+
+The project also maintains:
+
+```text
+data/staging/history.jsonl
+```
+
+Each logical date has one summary entry.
+
+Re-running the same logical date replaces its previous entry instead of creating duplicate history records.
+
+---
+
+# Data Validation
+
+Before processing continues, the `validate` task checks for several data-quality problems.
+
+Current validation checks include:
+
+* Missing numerical values
+* Negative feature values
+* Invalid diagnosis labels
+* Duplicate sample IDs
+* Extreme `mean_area` outliers
+
+Accepted labels are:
+
+```text
+M
+B
+```
+
+The maximum rejected-row threshold is:
+
+```text
+5%
+```
+
+If more than 5% of the dataset is invalid, the pipeline fails immediately.
+
+---
+
+# Deterministic Train/Test Split
+
+Instead of randomly shuffling the dataset, the pipeline hashes each `sample_id`.
+
+The resulting hash determines whether a record belongs to the training or testing partition.
+
+Current ratio:
+
+```text
+Training: approximately 80%
+Testing:  approximately 20%
+```
+
+This approach provides reproducible partitioning even when source rows arrive in a different order.
+
+---
+
+# Feature Scaling
+
+Scaling statistics are calculated exclusively from the training partition.
+
+For each numerical feature:
+
+```text
+scaled_value = (value - training_mean) / training_standard_deviation
+```
+
+The generated statistics are stored in:
+
+```text
+scaler.json
+```
+
+The test dataset never contributes to the calculation of the scaler.
+
+---
+
+# Testing Data Quality Failure
+
+The project includes a small utility that intentionally corrupts part of the source dataset.
+
+Run:
+
+```bash
+python utilities/generate_corrupted_data.py
+```
+
+By default, the script modifies approximately 12% of the records.
+
+Because this exceeds the pipeline's 5% rejection limit, the `validate` task should fail.
+
+After testing, restore the original source dataset:
+
+```bash
+python utilities/generate_corrupted_data.py --repair
+```
+
+A custom corruption fraction can also be supplied:
+
+```bash
+python utilities/generate_corrupted_data.py --fraction 0.10
+```
+
+---
+
+# Useful Docker Commands
+
+Start the environment:
+
+```bash
+docker compose up -d
+```
+
+Rebuild after Docker dependency changes:
+
+```bash
+docker compose up -d --build
+```
+
+Check services:
+
+```bash
+docker compose ps
+```
+
+View Airflow logs:
+
+```bash
+docker compose logs -f airflow
+```
+
+Open a shell inside the Airflow container:
+
+```bash
+docker compose exec airflow bash
+```
+
+List DAGs:
+
+```bash
+docker compose exec airflow airflow dags list
+```
+
+Stop containers:
+
+```bash
+docker compose down
+```
+
+Stop containers and remove associated volumes:
+
+```bash
+docker compose down -v
+```
+
+---
+
+# Verification Commands
+
+Validate Python syntax:
+
+```bash
+python3 -m py_compile dags/ml_training_pipeline.py
+python3 -m py_compile utilities/generate_corrupted_data.py
+```
+
+Validate Docker Compose configuration:
+
+```bash
+docker compose config
+```
+
+Check DAG import errors:
+
+```bash
+docker compose exec airflow airflow dags list-import-errors
+```
+
+Run the DAG:
+
+```bash
+docker compose exec airflow airflow dags test breast_cancer_etl 2026-08-25
+```
+
+---
+
+## Technology Stack
+
+* Apache Airflow 2.8.4
+* Python 3.11
+* Docker
+* Docker Compose
+* Pandas
+* NumPy
+* PyArrow
+
+---
+
+## Current Pipeline
+
+```text
+wdbc.csv
+   │
+   ▼
+INGEST
+   │
+   ├── raw.parquet
+   ▼
+VALIDATE
+   │
+   ├── rejected.parquet
+   ├── clean.parquet
+   └── validation_report.json
+   │
+   ▼
+SPLIT
+   │
+   ├── train_unscaled.parquet
+   └── test_unscaled.parquet
+   │
+   ▼
+SCALE
+   │
+   ├── train.parquet
+   ├── test.parquet
+   └── scaler.json
+   │
+   ▼
+REPORT
+   │
+   ├── summary.json
+   └── history.jsonl
+```
