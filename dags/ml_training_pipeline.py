@@ -36,7 +36,7 @@ def run_dir(ds: str) -> Path:
 
 
 @dag(
-    dag_id="wdbc_pipeline",
+    dag_id="breast_cancer_etl",
     description="Breast cancer extract: ingest, validate, split, scale",
     schedule="@daily",
     start_date=datetime(2026, 8, 20),
@@ -47,9 +47,9 @@ def run_dir(ds: str) -> Path:
         "retry_delay": timedelta(seconds=10),
         "retry_exponential_backoff": True,
     },
-    tags=["ddm501", "tutorial-03"],
+    tags=["mlops", "data-quality", "classification"],
 )
-def wdbc_pipeline():
+def breast_cancer_etl():
 
     @task
     def ingest(ds: str = None) -> dict:
@@ -165,4 +165,4 @@ def wdbc_pipeline():
     report(validated, split_info, scaling)
 
 
-wdbc_pipeline()
+breast_cancer_etl()

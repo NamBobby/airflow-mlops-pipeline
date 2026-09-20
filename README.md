@@ -48,7 +48,7 @@ owns 8080 and you will want both running one day.
 This runs every task in order, in your terminal:
 
 ```bash
-airflow dags test wdbc_pipeline 2026-08-25
+airflow dags test breast_cancer_etl 2026-08-25
 ```
 
 Then look at what it produced:
@@ -68,7 +68,7 @@ data/staging/history.jsonl one line per run
 
 | | Do this | Look for |
 |---|---|---|
-| 1 | `airflow dags test wdbc_pipeline 2026-08-25` twice | The outputs are byte-identical and `history.jsonl` still has one line for that date. Re-running a date is safe. |
-| 2 | `python scripts/corrupt_extract.py` then re-run | `validate` fails with `13.0% of rows rejected, limit is 5%`, and the log says **Immediate failure requested** — the three retries were skipped on purpose. Repair with `--repair`. |
-| 3 | `airflow dags backfill wdbc_pipeline -s 2026-08-22 -e 2026-08-24` | Three run folders appear, one per date, three lines in `history.jsonl`. |
+| 1 | `airflow dags test breast_cancer_etl 2026-08-25` twice | The outputs are byte-identical and `history.jsonl` still has one line for that date. Re-running a date is safe. |
+| 2 | `python utilities/generate_corrupted_data.py` then re-run | `validate` fails with `13.0% of rows rejected, limit is 5%`, and the log says **Immediate failure requested** — the three retries were skipped on purpose. Repair with `--repair`. |
+| 3 | `airflow dags backfill breast_cancer_etl -s 2026-08-22 -e 2026-08-24` | Three run folders appear, one per date, three lines in `history.jsonl`. |
 | 4 | Open the UI, Grid view, click a failed task, then Logs | The traceback for one task of one date, without SSH-ing anywhere. |

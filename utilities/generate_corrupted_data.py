@@ -4,8 +4,8 @@ Damage the extract, so you can watch the pipeline refuse it.
 The validate task quarantines bad rows and fails the run only when more than
 5% of them are bad. This script pushes the extract past that line.
 
-Run:  python scripts/corrupt_extract.py          # break 12% of the rows
-      python scripts/corrupt_extract.py --repair # put the original back
+Run:  python utilities/generate_corrupted_data.py          # break 12% of the rows
+      python utilities/generate_corrupted_data.py --repair # put the original back
 """
 import argparse
 import shutil

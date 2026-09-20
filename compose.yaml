@@ -9,13 +9,15 @@
 #
 # Then open http://127.0.0.1:18080 and log in as `admin`.
 
-name: ddm501-t03
+name: breast-cancer-mlops
 
 services:
   airflow:
-    build: .
-    image: ddm501-t03-airflow:2.8.4
-    container_name: ddm501-t03-airflow
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    image: breast-cancer-airflow:2.8.4
+    container_name: breast-cancer-mlops-airflow
     command: standalone
     ports:
       # 18080, not 8080: Lab 2's Airflow already owns 8080 and you will want
